@@ -1,0 +1,52 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.pprof
+*.cover
+profile.out
+coverage/
+coverage.*
+
+# Build output directories
+bin/
+build/
+dist/
+tmp/
+*.tmp
+*.cache
+
+# Dependency & module files
+vendor/
+go.work
+go.work.sum
+
+# Configuration & env files
+config.*
+.env
+.env.*
+*.env
+*.local
+
+# Logs
+*.log
+logs/
+
+# IDE & editor
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Project specific
+plans/
