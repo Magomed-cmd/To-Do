@@ -1,0 +1,154 @@
+services:
+  # ---------- PostgreSQL master ----------
+  postgres-master:
+    image: postgres:15
+    container_name: postgres-master
+    ports:
+      - "${POSTGRES_MASTER_PORT}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_master_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  # ---------- PostgreSQL slave ----------
+  postgres-slave:
+    image: postgres:15
+    container_name: postgres-slave
+    ports:
+      - "${POSTGRES_SLAVE_PORT}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_slave_data:/var/lib/postgresql/data
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  # ---------- Traefik gateway ----------
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8080:8080"
+    command:
+      - --api.dashboard=true
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.network=to-do_app-network
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --log.level=DEBUG
+      - --accesslog=true
+      - --accesslog.filepath=/var/log/traefik/access.log
+    volumes:
+      - ${DOCKER_SOCK_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
+      - ./logs/traefik:/var/log/traefik
+    networks:
+      - app-network
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+  # ---------- User Service ----------
+  user-service:
+    build:
+      context: .
+      dockerfile: ./services/user-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      - HTTP_ADDR=:${USER_SERVICE_PORT:-8081}
+      - POSTGRES_MASTER_HOST=postgres-master
+      - POSTGRES_MASTER_PORT=${POSTGRES_MASTER_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - JWT_ACCESS_TTL=${JWT_ACCESS_TTL}
+      - JWT_REFRESH_TTL=${JWT_REFRESH_TTL}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_REDIRECT_URL=${GITHUB_REDIRECT_URL}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=to-do_app-network"
+
+      # --- Auth routes ---
+      - "traefik.http.routers.user-auth.rule=PathPrefix(`/auth`)"
+      - "traefik.http.routers.user-auth.entrypoints=web"
+      - "traefik.http.routers.user-auth.service=user-service"
+
+      # --- API routes ---
+      - "traefik.http.routers.user-api.rule=PathPrefix(`/api/users`)"
+      - "traefik.http.routers.user-api.entrypoints=web"
+      - "traefik.http.middlewares.user-api-strip.stripprefix.prefixes=/api/users"
+      - "traefik.http.routers.user-api.middlewares=user-api-strip"
+      - "traefik.http.routers.user-api.service=user-service"
+
+      # --- Internal routes ---
+      - "traefik.http.routers.user-internal.rule=PathPrefix(`/internal`)"
+      - "traefik.http.routers.user-internal.entrypoints=web"
+      - "traefik.http.routers.user-internal.service=user-service"
+
+      # --- Healthcheck routes ---
+      - "traefik.http.routers.user-health.rule=PathPrefix(`/health`)"
+      - "traefik.http.routers.user-health.entrypoints=web"
+      - "traefik.http.routers.user-health.service=user-service"
+
+      # --- Service definition ---
+      - "traefik.http.services.user-service.loadbalancer.server.port=8081"
+    depends_on:
+      - postgres-master
+      - redis
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  # ---------- Database migrations ----------
+  migrate:
+    image: migrate/migrate:v4.16.2
+    container_name: migrate
+    volumes:
+      - ./migrations:/migrations
+    command: >
+      -path /migrations
+      -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-master:${POSTGRES_MASTER_PORT}/${POSTGRES_DB}?sslmode=disable
+      up
+    depends_on:
+      - postgres-master
+    env_file:
+      - .env
+    networks:
+      - app-network
+    restart: "no"
+
+volumes:
+  postgres_master_data:
+  postgres_slave_data:
+  redis_data:
+
+networks:
+  app-network:
+    driver: bridge

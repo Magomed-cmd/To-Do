@@ -1,0 +1,1 @@
+ALTER TABLE user_service.users ADD COLUMN password_hash VARCHAR(255);

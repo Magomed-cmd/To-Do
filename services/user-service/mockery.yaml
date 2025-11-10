@@ -1,0 +1,29 @@
+with-expecter: false
+packages:
+  github.com/valiev/todo/user-service/internal/ports:
+    interfaces:
+      UserService:
+        configs:
+          - dir: internal/adapters/http/admin
+            filename: mock_user_service.go
+            outpkg: admin
+          - dir: internal/adapters/http/auth
+            filename: mock_user_service.go
+            outpkg: auth
+          - dir: internal/adapters/http/profile
+            filename: mock_user_service.go
+            outpkg: profile
+          - dir: internal/adapters/http/internalapi
+            filename: mock_user_service.go
+            outpkg: internalapi
+      TokenManager:
+        configs:
+          - dir: internal/adapters/http/auth
+            filename: mock_token_manager.go
+            outpkg: auth
+          - dir: internal/adapters/http/internalapi
+            filename: mock_token_manager.go
+            outpkg: internalapi
+          - dir: internal/adapters/http/middleware
+            filename: mock_token_manager.go
+            outpkg: middleware

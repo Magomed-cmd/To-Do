@@ -1,0 +1,59 @@
+include .env
+
+MIGRATE_MASTER = migrate -path migrations -database "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5434/${POSTGRES_DB}?sslmode=disable"
+MIGRATE_SLAVE = migrate -path migrations -database "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5435/${POSTGRES_DB}?sslmode=disable"
+
+.PHONY: help up down migrate-up migrate-down run-user dsn-master dsn-slave mocks mocks-clean
+
+help:
+	@echo "Available commands:"
+	@echo "  up           - Start infrastructure"
+	@echo "  down         - Stop infrastructure" 
+	@echo "  migrate-up   - Apply all migrations"
+	@echo "  migrate-down - Rollback all migrations"
+	@echo "  run-user     - Run user service"
+	@echo "  dsn-master   - Show master DSN"
+	@echo "  dsn-slave    - Show slave DSN"
+	@echo "  mocks        - Generate Go mocks"
+	@echo "  mocks-clean  - Remove generated mocks"
+
+up:
+	docker-compose up -d
+
+down:
+	docker-compose down
+
+migrate-up:
+	@echo "Waiting for databases..."
+	sleep 3
+	@echo "Applying migrations to master..."
+	$(MIGRATE_MASTER) up
+	@echo "Applying migrations to slave..."
+	$(MIGRATE_SLAVE) up
+	@echo "Done!"
+
+migrate-down:
+	@echo "Rolling back migrations..."
+	$(MIGRATE_MASTER) down
+	$(MIGRATE_SLAVE) down
+	@echo "Done!"
+
+run-user:
+	cd services/user-service && go run cmd/main.go
+
+dsn-master:
+	@echo "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5434/${POSTGRES_DB}?sslmode=disable"
+
+dsn-slave:
+	@echo "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5435/${POSTGRES_DB}?sslmode=disable"
+
+mocks:
+	cd services/user-service && ~/go/bin/mockery --config mockery.yaml
+
+mocks-clean:
+	find services/user-service -type f -name 'mock_*.go' -delete
+
+fresh-build:
+	go build -p 10 -a -v ./...
+build:
+	cd services && cd user-service && go build -p 10 -a -v ./... && cd .. & cd ..
