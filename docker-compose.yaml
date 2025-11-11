@@ -126,6 +126,54 @@ services:
     networks:
       - app-network
 
+  # ---------- Task Service ----------
+  task-service:
+    build:
+      context: .
+      dockerfile: ./services/task-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      - TASK_SERVICE_NAME=task-service
+      - TASK_SERVICE_HTTP_ADDR=:${TASK_SERVICE_PORT:-8082}
+      - TASK_SERVICE_DB_HOST=postgres-master
+      - TASK_SERVICE_DB_PORT=${POSTGRES_MASTER_PORT}
+      - TASK_SERVICE_DB_USER=${POSTGRES_USER}
+      - TASK_SERVICE_DB_PASSWORD=${POSTGRES_PASSWORD}
+      - TASK_SERVICE_DB_NAME=${POSTGRES_DB}
+      - TASK_SERVICE_DB_MAX_CONNS=20
+      - TASK_SERVICE_DB_MIN_CONNS=5
+      - TASK_SERVICE_DB_CONN_MAX_LIFETIME=30m
+      - TASK_SERVICE_JWT_ACCESS_SECRET=${JWT_ACCESS_SECRET}
+      - TASK_SERVICE_JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - TASK_SERVICE_JWT_ACCESS_TTL=${JWT_ACCESS_TTL}
+      - TASK_SERVICE_JWT_REFRESH_TTL=${JWT_REFRESH_TTL}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=to-do_app-network"
+
+      # --- API routes ---
+      - "traefik.http.routers.task-api.rule=PathPrefix(`/api/tasks`)"
+      - "traefik.http.routers.task-api.entrypoints=web"
+      - "traefik.http.middlewares.task-api-strip.stripprefix.prefixes=/api/tasks"
+      - "traefik.http.routers.task-api.middlewares=task-api-strip"
+      - "traefik.http.routers.task-api.service=task-service"
+
+      # --- Healthcheck routes ---
+      - "traefik.http.routers.task-health.rule=PathPrefix(`/tasks/health`)"
+      - "traefik.http.routers.task-health.entrypoints=web"
+      - "traefik.http.middlewares.task-health-strip.stripprefix.prefixes=/tasks"
+      - "traefik.http.routers.task-health.middlewares=task-health-strip"
+      - "traefik.http.routers.task-health.service=task-service"
+
+      # --- Service definition ---
+      - "traefik.http.services.task-service.loadbalancer.server.port=8082"
+    depends_on:
+      - postgres-master
+    env_file:
+      - .env
+    networks:
+      - app-network
+
   # ---------- Database migrations ----------
   migrate:
     image: migrate/migrate:v4.16.2
