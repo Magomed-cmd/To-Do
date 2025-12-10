@@ -11,7 +11,10 @@ import (
 	"time"
 
 	authadapter "todoapp/services/task-service/internal/adapters/auth"
+	analyticsgrpc "todoapp/services/task-service/internal/adapters/clients/analyticsgrpc"
+	usergrpc "todoapp/services/task-service/internal/adapters/clients/usergrpc"
 	dbadapter "todoapp/services/task-service/internal/adapters/database"
+	rabbitpublisher "todoapp/services/task-service/internal/adapters/events/rabbitmq"
 	"todoapp/services/task-service/internal/infrastructure/app"
 	"todoapp/services/task-service/internal/infrastructure/config"
 	"todoapp/services/task-service/internal/infrastructure/postgres"
@@ -33,7 +36,40 @@ func main() {
 	defer pool.Close()
 
 	repo := dbadapter.NewPostgresTaskRepository(pool)
-	taskService := service.NewTaskService(repo)
+
+	logger := log.New(os.Stdout, "task-service ", log.LstdFlags|log.Lshortfile)
+
+	userClient, err := usergrpc.New(usergrpc.Config{
+		Address: cfg.UserService.GRPCAddr,
+		Timeout: cfg.UserService.Timeout,
+	})
+	if err != nil {
+		log.Fatalf("failed to connect to user-service: %v", err)
+	}
+	defer userClient.Close()
+
+	analyticsClient, err := analyticsgrpc.New(analyticsgrpc.Config{
+		Address: cfg.Analytics.GRPCAddr,
+		Timeout: cfg.Analytics.Timeout,
+	})
+	if err != nil {
+		log.Fatalf("failed to connect to analytics service: %v", err)
+	}
+	defer analyticsClient.Close()
+
+	publisher, err := rabbitpublisher.New(cfg.Rabbit.URL, cfg.Rabbit.Queue)
+	if err != nil {
+		log.Fatalf("failed to initialize rabbitmq publisher: %v", err)
+	}
+	defer publisher.Close()
+
+	taskService := service.NewTaskService(
+		repo,
+		service.WithUserDirectory(userClient),
+		service.WithAnalyticsTracker(analyticsClient),
+		service.WithEventPublisher(publisher),
+		service.WithLogger(logger),
+	)
 	tokenManager := authadapter.NewJWTManager(cfg.JWT.AccessSecret, cfg.JWT.RefreshSecret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 
 	router, err := app.NewRouter(app.HTTPDeps{

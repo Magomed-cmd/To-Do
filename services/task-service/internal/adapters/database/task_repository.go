@@ -110,14 +110,18 @@ RETURNING updated_at
 
 func (r *PostgresTaskRepository) SoftDeleteTask(ctx context.Context, userID, taskID int64, deletedAt time.Time) error {
 	const query = `
-DELETE FROM task_service.tasks
+UPDATE task_service.tasks
+SET deleted_at = $3,
+    status = 'archived',
+    updated_at = NOW()
 WHERE id = $1
   AND user_id = $2
+  AND deleted_at IS NULL
 `
 
 	q := r.querier(ctx)
 
-	tag, err := q.Exec(ctx, query, taskID, userID)
+	tag, err := q.Exec(ctx, query, taskID, userID, deletedAt)
 	if err != nil {
 		return err
 	}
@@ -135,6 +139,7 @@ func (r *PostgresTaskRepository) GetTask(ctx context.Context, userID, taskID int
 	row := q.QueryRow(ctx, baseTaskSelect()+`
 WHERE t.id = $1
   AND t.user_id = $2
+  AND t.deleted_at IS NULL
 `, taskID, userID)
 
 	task, err := scanTask(row)
@@ -158,6 +163,8 @@ func (r *PostgresTaskRepository) ListTasks(ctx context.Context, userID int64, fi
 	clauses = append(clauses, "t.user_id = $"+itoa(argsIndex))
 	args = append(args, userID)
 	argsIndex++
+
+	clauses = append(clauses, "t.deleted_at IS NULL")
 
 	if len(filter.Statuses) > 0 {
 		clauses = append(clauses, "t.status = ANY($"+itoa(argsIndex)+")")
@@ -428,6 +435,7 @@ SELECT
     t.category_id,
     t.created_at,
     t.updated_at,
+    t.deleted_at,
     c.id,
     c.user_id,
     c.name,
@@ -446,6 +454,7 @@ func scanTask(row rowScanner) (*entities.Task, error) {
 		categoryUserID  sql.NullInt64
 		categoryName    sql.NullString
 		categoryCreated sql.NullTime
+		deletedAt       sql.NullTime
 	)
 
 	if err := row.Scan(
@@ -459,6 +468,7 @@ func scanTask(row rowScanner) (*entities.Task, error) {
 		&categoryID,
 		&task.CreatedAt,
 		&task.UpdatedAt,
+		&deletedAt,
 		&categoryEntity,
 		&categoryUserID,
 		&categoryName,
@@ -488,6 +498,11 @@ func scanTask(row rowScanner) (*entities.Task, error) {
 			category.UpdatedAt = categoryCreated.Time
 		}
 		task.Category = &category
+	}
+
+	if deletedAt.Valid {
+		value := deletedAt.Time
+		task.DeletedAt = &value
 	}
 
 	return &task, nil

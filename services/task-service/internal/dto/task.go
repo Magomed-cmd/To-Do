@@ -9,23 +9,23 @@ import (
 )
 
 type CreateTaskRequest struct {
-	Title       string     `json:"title" binding:"required,min=1,max=200"`
-	Description string     `json:"description" binding:"omitempty,max=2000"`
-	Status      string     `json:"status" binding:"omitempty,oneof=pending in_progress completed archived"`
-	Priority    string     `json:"priority" binding:"omitempty,oneof=low medium high"`
-	DueDate     *time.Time `json:"dueDate" binding:"omitempty"`
-	CategoryID  *int64     `json:"categoryId" binding:"omitempty,gte=1"`
+	Title       string  `json:"title" binding:"required,min=1,max=200"`
+	Description string  `json:"description" binding:"omitempty,max=2000"`
+	Status      *string `json:"status" binding:"omitempty,oneof=pending in_progress completed archived"`
+	Priority    *string `json:"priority" binding:"omitempty,oneof=low medium high"`
+	DueDate     *string `json:"dueDate" binding:"omitempty"`
+	CategoryID  *int64  `json:"categoryId" binding:"omitempty,gte=1"`
 }
 
 type UpdateTaskRequest struct {
-	Title         *string    `json:"title" binding:"omitempty,min=1,max=200"`
-	Description   *string    `json:"description" binding:"omitempty,max=2000"`
-	Status        *string    `json:"status" binding:"omitempty,oneof=pending in_progress completed archived"`
-	Priority      *string    `json:"priority" binding:"omitempty,oneof=low medium high"`
-	DueDate       *time.Time `json:"dueDate"`
-	ClearDueDate  bool       `json:"clearDueDate"`
-	CategoryID    *int64     `json:"categoryId" binding:"omitempty,gte=1"`
-	ClearCategory bool       `json:"clearCategory"`
+	Title         *string `json:"title" binding:"omitempty,min=1,max=200"`
+	Description   *string `json:"description" binding:"omitempty,max=2000"`
+	Status        *string `json:"status" binding:"omitempty,oneof=pending in_progress completed archived"`
+	Priority      *string `json:"priority" binding:"omitempty,oneof=low medium high"`
+	DueDate       *string `json:"dueDate"`
+	ClearDueDate  bool    `json:"clearDueDate"`
+	CategoryID    *int64  `json:"categoryId" binding:"omitempty,gte=1"`
+	ClearCategory bool    `json:"clearCategory"`
 }
 
 type UpdateTaskStatusRequest struct {
@@ -33,14 +33,14 @@ type UpdateTaskStatusRequest struct {
 }
 
 type TaskFilterRequest struct {
-	Status     string     `form:"status"`
-	Priority   string     `form:"priority"`
-	CategoryID *int64     `form:"categoryId"`
-	Search     string     `form:"search"`
-	DueFrom    *time.Time `form:"dueFrom"`
-	DueTo      *time.Time `form:"dueTo"`
-	Limit      int        `form:"limit,default=20"`
-	Offset     int        `form:"offset,default=0"`
+	Status     string  `form:"status"`
+	Priority   string  `form:"priority"`
+	CategoryID *int64  `form:"categoryId"`
+	Search     string  `form:"search"`
+	DueFrom    *string `form:"dueFrom"`
+	DueTo      *string `form:"dueTo"`
+	Limit      int     `form:"limit,default=20"`
+	Offset     int     `form:"offset,default=0"`
 }
 
 type CreateCategoryRequest struct {
@@ -87,13 +87,30 @@ type CommentResponse struct {
 }
 
 func (r CreateTaskRequest) ToInput(userID int64) ports.CreateTaskInput {
+	var dueDate *time.Time
+	if r.DueDate != nil && strings.TrimSpace(*r.DueDate) != "" {
+		if parsed, ok := parseFlexibleTime(*r.DueDate); ok {
+			dueDate = &parsed
+		}
+	}
+
+	status := entities.TaskStatusPending
+	if r.Status != nil {
+		status = toStatusOrDefault(*r.Status)
+	}
+
+	priority := entities.TaskPriorityMedium
+	if r.Priority != nil {
+		priority = toPriorityOrDefault(*r.Priority)
+	}
+
 	return ports.CreateTaskInput{
 		UserID:      userID,
 		Title:       r.Title,
 		Description: strings.TrimSpace(r.Description),
-		Status:      toStatusOrDefault(r.Status),
-		Priority:    toPriorityOrDefault(r.Priority),
-		DueDate:     r.DueDate,
+		Status:      status,
+		Priority:    priority,
+		DueDate:     dueDate,
 		CategoryID:  r.CategoryID,
 	}
 }
@@ -112,6 +129,13 @@ func (r UpdateTaskRequest) ToInput(userID, taskID int64) ports.UpdateTaskInput {
 		priority = &value
 	}
 
+	var dueDate *time.Time
+	if r.DueDate != nil && strings.TrimSpace(*r.DueDate) != "" {
+		if parsed, ok := parseFlexibleTime(*r.DueDate); ok {
+			dueDate = &parsed
+		}
+	}
+
 	return ports.UpdateTaskInput{
 		UserID:        userID,
 		TaskID:        taskID,
@@ -119,7 +143,7 @@ func (r UpdateTaskRequest) ToInput(userID, taskID int64) ports.UpdateTaskInput {
 		Description:   normalizePtr(r.Description),
 		Status:        status,
 		Priority:      priority,
-		DueDate:       r.DueDate,
+		DueDate:       dueDate,
 		ClearDueDate:  r.ClearDueDate,
 		CategoryID:    r.CategoryID,
 		ClearCategory: r.ClearCategory,
@@ -149,6 +173,8 @@ func (r TaskFilterRequest) ToFilter() ports.TaskFilter {
 	var (
 		statuses   []entities.TaskStatus
 		priorities []entities.TaskPriority
+		dueFrom    *time.Time
+		dueTo      *time.Time
 	)
 
 	if statusValue, ok := parseStatus(r.Status); ok {
@@ -159,13 +185,25 @@ func (r TaskFilterRequest) ToFilter() ports.TaskFilter {
 		priorities = append(priorities, priorityValue)
 	}
 
+	if r.DueFrom != nil && strings.TrimSpace(*r.DueFrom) != "" {
+		if parsed, ok := parseFlexibleTime(*r.DueFrom); ok {
+			dueFrom = &parsed
+		}
+	}
+
+	if r.DueTo != nil && strings.TrimSpace(*r.DueTo) != "" {
+		if parsed, ok := parseFlexibleTime(*r.DueTo); ok {
+			dueTo = &parsed
+		}
+	}
+
 	return ports.TaskFilter{
 		Statuses:   statuses,
 		Priorities: priorities,
 		CategoryID: r.CategoryID,
 		Search:     strings.TrimSpace(r.Search),
-		DueFrom:    r.DueFrom,
-		DueTo:      r.DueTo,
+		DueFrom:    dueFrom,
+		DueTo:      dueTo,
 		Limit:      clampLimit(r.Limit),
 		Offset:     clampOffset(r.Offset),
 	}
@@ -314,4 +352,18 @@ func clampOffset(offset int) int {
 		return 0
 	}
 	return offset
+}
+
+func parseFlexibleTime(raw string) (time.Time, bool) {
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02T15:04:05.999999",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }

@@ -31,6 +31,7 @@ type Task struct {
 	Category    *Category
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	DeletedAt   *time.Time
 	Comments    []TaskComment
 }
 

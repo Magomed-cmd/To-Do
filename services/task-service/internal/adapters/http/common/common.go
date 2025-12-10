@@ -19,7 +19,7 @@ func WriteValidationError(ctx *gin.Context, err error) {
 func WriteDomainError(ctx *gin.Context, err error) {
 	if domainErr, ok := err.(*domain.DomainError); ok {
 		switch domainErr {
-		case domain.ErrTaskNotFound, domain.ErrCategoryNotFound, domain.ErrCommentNotFound:
+		case domain.ErrTaskNotFound, domain.ErrCategoryNotFound, domain.ErrCommentNotFound, domain.ErrUnknownUser:
 			ctx.JSON(http.StatusNotFound, gin.H{"error": domainErr.Code, "message": domainErr.Message})
 			return
 		case domain.ErrForbiddenTaskAccess:
