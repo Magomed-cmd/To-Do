@@ -1,14 +1,18 @@
+# syntax=docker/dockerfile:1.4
 # ---------- Build stage ----------
-FROM golang:alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Install git for go modules
+# Install git (needed for some go modules)
 RUN apk add --no-cache git
 
 # Copy dependency files first for caching
 COPY go.mod go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy the entire source tree
 COPY . .
@@ -16,15 +20,19 @@ COPY . .
 # Set build context to task-service
 WORKDIR /app/services/task-service
 
-# Build binary (static, optimized)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s -extldflags "-static"' \
-    -a -installsuffix cgo \
+# Build arguments for cross-compilation
+ARG TARGETOS TARGETARCH
+
+# Build binary with cache mount for faster rebuilds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags='-w -s' \
     -o main ./cmd/main.go
 
 
 # ---------- Runtime stage ----------
-FROM alpine:latest
+FROM alpine:3.19
 
 # Install certs and timezone data
 RUN apk --no-cache add ca-certificates tzdata wget

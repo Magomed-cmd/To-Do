@@ -1,24 +1,34 @@
+# syntax=docker/dockerfile:1.4
 # ---------- Build stage ----------
-FROM golang:alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
 RUN apk add --no-cache git
 
+# Copy dependency files first for caching
 COPY services/notification-service/go.mod services/notification-service/go.sum ./
-RUN go mod download
+
+# Download dependencies with cache mount
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY services/notification-service ./notification-service
 
 WORKDIR /app/notification-service
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s -extldflags "-static"' \
-    -a -installsuffix cgo \
+# Build arguments for cross-compilation
+ARG TARGETOS TARGETARCH
+
+# Build binary with cache mount for faster rebuilds
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags='-w -s' \
     -o main ./cmd/main.go
 
 # ---------- Runtime stage ----------
-FROM alpine:latest
+FROM alpine:3.19
 
 RUN apk --no-cache add ca-certificates tzdata
 
