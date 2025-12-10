@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// HTTPError represents the JSON error response format.
 type HTTPError struct {
 	Error   string            `json:"error"`
 	Code    string            `json:"code"`
@@ -17,7 +16,6 @@ type HTTPError struct {
 	Meta    map[string]string `json:"meta,omitempty"`
 }
 
-// WriteHTTP writes an AppError to http.ResponseWriter as JSON.
 func WriteHTTP(w http.ResponseWriter, err error) {
 	appErr := AsAppError(err)
 
@@ -35,9 +33,6 @@ func WriteHTTP(w http.ResponseWriter, err error) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
-// AsAppError converts any error to an AppError.
-// If the error is already an AppError, it returns it as-is.
-// Otherwise, it wraps it as an internal error.
 func AsAppError(err error) *AppError {
 	if err == nil {
 		return nil
@@ -48,7 +43,6 @@ func AsAppError(err error) *AppError {
 		return appErr
 	}
 
-	// Check for gRPC status errors
 	if st, ok := status.FromError(err); ok {
 		return &AppError{
 			Code:    grpcCodeToErrorCode(st.Code()),
@@ -57,7 +51,6 @@ func AsAppError(err error) *AppError {
 		}
 	}
 
-	// Wrap unknown errors as internal
 	return &AppError{
 		Code:    CodeInternal,
 		Message: "internal server error",
@@ -65,7 +58,6 @@ func AsAppError(err error) *AppError {
 	}
 }
 
-// IsCode checks if an error has a specific error code.
 func IsCode(err error, code ErrorCode) bool {
 	var appErr *AppError
 	if errors.As(err, &appErr) {
@@ -74,15 +66,14 @@ func IsCode(err error, code ErrorCode) bool {
 	return false
 }
 
-// IsNotFound checks if error is a not-found type.
 func IsNotFound(err error) bool {
 	return IsCode(err, CodeNotFound) ||
 		IsCode(err, CodeUserNotFound) ||
 		IsCode(err, CodeTaskNotFound) ||
-		IsCode(err, CodeCategoryNotFound)
+		IsCode(err, CodeCategoryNotFound) ||
+		IsCode(err, CodeCommentNotFound)
 }
 
-// IsUnauthorized checks if error is an auth failure.
 func IsUnauthorized(err error) bool {
 	return IsCode(err, CodeUnauthorized) ||
 		IsCode(err, CodeInvalidCredentials) ||
@@ -91,7 +82,6 @@ func IsUnauthorized(err error) bool {
 		IsCode(err, CodeTokenInvalid)
 }
 
-// IsForbidden checks if error is a permission failure.
 func IsForbidden(err error) bool {
 	return IsCode(err, CodeForbidden) ||
 		IsCode(err, CodeInsufficientPrivileges) ||
@@ -99,7 +89,6 @@ func IsForbidden(err error) bool {
 		IsCode(err, CodeUserInactive)
 }
 
-// IsValidation checks if error is a validation failure.
 func IsValidation(err error) bool {
 	return IsCode(err, CodeValidation) ||
 		IsCode(err, CodeBadRequest) ||
@@ -109,7 +98,6 @@ func IsValidation(err error) bool {
 		IsCode(err, CodePasswordTooWeak)
 }
 
-// grpcCodeToErrorCode maps gRPC codes back to our error codes.
 func grpcCodeToErrorCode(code codes.Code) ErrorCode {
 	switch code {
 	case codes.InvalidArgument:

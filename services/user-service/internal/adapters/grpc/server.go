@@ -6,13 +6,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"todoapp/pkg/errors"
 	userv1 "todoapp/pkg/proto/user/v1"
-	"todoapp/services/user-service/internal/domain"
 	"todoapp/services/user-service/internal/domain/entities"
 	"todoapp/services/user-service/internal/ports"
 )
 
-// Server exposes the user service capabilities over gRPC for other services.
 type Server struct {
 	userv1.UnimplementedUserServiceServer
 
@@ -31,7 +30,7 @@ func (s *Server) GetUser(ctx context.Context, req *userv1.GetUserRequest) (*user
 
 	user, err := s.service.GetProfile(ctx, req.GetUserId())
 	if err != nil {
-		return nil, mapDomainError(err)
+		return nil, mapToGRPCError(err)
 	}
 
 	return &userv1.GetUserResponse{User: toProtoUser(*user)}, nil
@@ -65,21 +64,11 @@ func toProtoUser(user entities.User) *userv1.User {
 	}
 }
 
-func mapDomainError(err error) error {
+func mapToGRPCError(err error) error {
 	if err == nil {
 		return status.Error(codes.Internal, "unknown error")
 	}
 
-	if domainErr, ok := err.(*domain.DomainError); ok {
-		switch domainErr {
-		case domain.ErrUserNotFound:
-			return status.Error(codes.NotFound, domainErr.Message)
-		case domain.ErrUserInactive, domain.ErrUserSuspended, domain.ErrUserLocked:
-			return status.Error(codes.PermissionDenied, domainErr.Message)
-		default:
-			return status.Error(codes.InvalidArgument, domainErr.Message)
-		}
-	}
-
-	return status.Error(codes.Internal, err.Error())
+	appErr := errors.AsAppError(err)
+	return status.Error(appErr.GRPCCode(), appErr.Message)
 }

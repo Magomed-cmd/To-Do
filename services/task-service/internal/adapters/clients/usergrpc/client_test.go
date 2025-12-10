@@ -2,7 +2,7 @@ package usergrpc
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"testing"
 	"time"
 
@@ -10,8 +10,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"todoapp/pkg/errors"
 	userv1 "todoapp/pkg/proto/user/v1"
-	"todoapp/services/task-service/internal/domain"
 )
 
 type fakeUserConn struct{}
@@ -20,7 +20,7 @@ func (fakeUserConn) Invoke(ctx context.Context, method string, args, reply any, 
 	return nil
 }
 func (fakeUserConn) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	return nil, errors.New("not implemented")
+	return nil, stderrors.New("not implemented")
 }
 func (fakeUserConn) Close() error { return nil }
 
@@ -90,14 +90,14 @@ func TestGetUserSuccess(t *testing.T) {
 func TestGetUserErrorTranslation(t *testing.T) {
 	tests := []struct {
 		err        error
-		expectCode string
+		expectCode errors.ErrorCode
 		expectMsg  string
 	}{
-		{status.Error(codes.NotFound, ""), domain.ErrUnknownUser.Code, domain.ErrUnknownUser.Message},
-		{status.Error(codes.PermissionDenied, ""), domain.ErrForbiddenTaskAccess.Code, domain.ErrForbiddenTaskAccess.Message},
-		{status.Error(codes.InvalidArgument, "bad"), domain.ErrValidationFailed.Code, "bad"},
-		{errors.New("other"), "", "other"},
-		{nil, domain.ErrUnknownUser.Code, domain.ErrUnknownUser.Message}, // nil user in response
+		{status.Error(codes.NotFound, ""), errors.CodeUserNotFound, "user not found"},
+		{status.Error(codes.PermissionDenied, ""), errors.CodeForbidden, "access denied"},
+		{status.Error(codes.InvalidArgument, "bad"), errors.CodeValidation, "bad"},
+		{stderrors.New("other"), errors.CodeInternal, "internal server error"},
+		{nil, errors.CodeUserNotFound, "user not found"},
 	}
 
 	for _, tt := range tests {
@@ -110,19 +110,12 @@ func TestGetUserErrorTranslation(t *testing.T) {
 
 		_, err := client.GetUser(context.Background(), 1)
 
-		if tt.expectCode == "" {
-			if err == nil || err.Error() != tt.expectMsg {
-				t.Fatalf("expected raw error %q, got %v", tt.expectMsg, err)
-			}
-			continue
+		var appErr *errors.AppError
+		if !stderrors.As(err, &appErr) {
+			t.Fatalf("expected AppError, got %v", err)
 		}
-
-		var domainErr *domain.DomainError
-		if !errors.As(err, &domainErr) {
-			t.Fatalf("expected domain error, got %v", err)
-		}
-		if domainErr.Code != tt.expectCode || domainErr.Message != tt.expectMsg {
-			t.Fatalf("unexpected domain error: %+v", domainErr)
+		if appErr.Code != tt.expectCode {
+			t.Fatalf("expected code %s, got %s", tt.expectCode, appErr.Code)
 		}
 	}
 }

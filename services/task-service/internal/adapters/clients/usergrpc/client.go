@@ -2,7 +2,7 @@ package usergrpc
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"time"
 
 	"google.golang.org/grpc"
@@ -10,12 +10,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"todoapp/pkg/errors"
 	userv1 "todoapp/pkg/proto/user/v1"
-	"todoapp/services/task-service/internal/domain"
 	"todoapp/services/task-service/internal/ports"
 )
 
-// Config describes the connection parameters for the user-service gRPC API.
 type Config struct {
 	Address string
 	Timeout time.Duration
@@ -26,7 +25,6 @@ type grpcConn interface {
 	Close() error
 }
 
-// Client implements ports.UserDirectory through a gRPC connection.
 type Client struct {
 	conn    grpcConn
 	client  userv1.UserServiceClient
@@ -41,7 +39,7 @@ var dialGRPC = func(ctx context.Context, target string, opts ...grpc.DialOption)
 
 func New(cfg Config) (*Client, error) {
 	if cfg.Address == "" {
-		return nil, errors.New("usergrpc: address is required")
+		return nil, stderrors.New("usergrpc: address is required")
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 3 * time.Second
@@ -77,7 +75,7 @@ func (c *Client) GetUser(ctx context.Context, userID int64) (*ports.UserInfo, er
 
 	user := resp.GetUser()
 	if user == nil {
-		return nil, domain.ErrUnknownUser
+		return nil, errors.ErrUserNotFound
 	}
 
 	return &ports.UserInfo{
@@ -92,17 +90,17 @@ func (c *Client) GetUser(ctx context.Context, userID int64) (*ports.UserInfo, er
 func translateError(err error) error {
 	st, ok := status.FromError(err)
 	if !ok {
-		return err
+		return errors.ErrInternal.WithCause(err)
 	}
 
 	switch st.Code() {
 	case codes.NotFound:
-		return domain.ErrUnknownUser
+		return errors.ErrUserNotFound
 	case codes.PermissionDenied:
-		return domain.ErrForbiddenTaskAccess
+		return errors.ErrForbidden
 	case codes.InvalidArgument:
-		return domain.ErrValidationFailed.WithMessage(st.Message())
+		return errors.ErrValidation.WithDetails(st.Message())
 	default:
-		return err
+		return errors.ErrInternal.WithCause(err)
 	}
 }

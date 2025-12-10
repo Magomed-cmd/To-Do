@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"todoapp/services/task-service/internal/domain"
+	"todoapp/pkg/errors"
 )
 
 func WriteValidationError(ctx *gin.Context, err error) {
@@ -17,24 +17,11 @@ func WriteValidationError(ctx *gin.Context, err error) {
 }
 
 func WriteDomainError(ctx *gin.Context, err error) {
-	if domainErr, ok := err.(*domain.DomainError); ok {
-		switch domainErr {
-		case domain.ErrTaskNotFound, domain.ErrCategoryNotFound, domain.ErrCommentNotFound, domain.ErrUnknownUser:
-			ctx.JSON(http.StatusNotFound, gin.H{"error": domainErr.Code, "message": domainErr.Message})
-			return
-		case domain.ErrForbiddenTaskAccess:
-			ctx.JSON(http.StatusForbidden, gin.H{"error": domainErr.Code, "message": domainErr.Message})
-			return
-		case domain.ErrInvalidTaskPriority, domain.ErrInvalidTaskStatus, domain.ErrValidationFailed, domain.ErrInvalidRecurringRule:
-			ctx.JSON(http.StatusBadRequest, gin.H{"error": domainErr.Code, "message": domainErr.Message})
-			return
-		default:
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": domainErr.Code, "message": domainErr.Message})
-			return
-		}
-	}
-
-	ctx.JSON(http.StatusInternalServerError, gin.H{"error": "INTERNAL_ERROR", "message": err.Error()})
+	appErr := errors.AsAppError(err)
+	ctx.JSON(appErr.HTTPStatus(), gin.H{
+		"error":   appErr.Code,
+		"message": appErr.Error(),
+	})
 }
 
 func ExtractBearerToken(header string) string {

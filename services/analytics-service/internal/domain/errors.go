@@ -1,7 +1,7 @@
 package domain
 
-import "errors"
+import "todoapp/pkg/errors"
 
 var (
-	ErrInvalidArgument = errors.New("invalid argument")
+	ErrInvalidArgument = errors.ErrInvalidArgument
 )

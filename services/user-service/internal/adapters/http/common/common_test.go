@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"todoapp/services/user-service/internal/domain"
+	"todoapp/pkg/errors"
 )
 
 func TestExtractBearerToken(t *testing.T) {
@@ -25,7 +25,7 @@ func TestWriteDomainError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
-	WriteDomainError(ctx, domain.ErrInvalidCredentials)
+	WriteDomainError(ctx, errors.ErrInvalidCredentials)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
@@ -33,7 +33,7 @@ func TestWriteDomainError(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("unexpected error %v", err)
 	}
-	if body["error"] != domain.ErrInvalidCredentials.Code {
+	if body["error"] != string(errors.CodeInvalidCredentials) {
 		t.Fatalf("unexpected error code %s", body["error"])
 	}
 }
