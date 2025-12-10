@@ -18,9 +18,15 @@ type Mailer struct {
 
 func NewMailer(host string, port int, username, password, from string) *Mailer {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	auth := stdsmtp.PlainAuth("", username, password, host)
+
+	// Only use auth if credentials are provided (Mailhog doesn't need auth)
+	var auth stdsmtp.Auth
+	if username != "" && password != "" {
+		auth = stdsmtp.PlainAuth("", username, password, host)
+	}
+
 	if from == "" {
-		from = username
+		from = "noreply@todoapp.local"
 	}
 	return &Mailer{addr: addr, auth: auth, from: from}
 }

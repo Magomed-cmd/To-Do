@@ -231,15 +231,27 @@ services:
       - NOTIFICATION_SERVICE_NAME=notification-service
       - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       - NOTIFICATION_TASK_QUEUE=${NOTIFICATION_TASK_QUEUE}
-      - SMTP_HOST=${SMTP_HOST}
-      - SMTP_PORT=${SMTP_PORT}
-      - SMTP_USER=${SMTP_USER}
-      - SMTP_PASSWORD=${SMTP_PASSWORD}
-      - SMTP_FROM=${SMTP_USER}
+      - SMTP_HOST=${SMTP_HOST:-mailhog}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-noreply@todoapp.local}
     depends_on:
       - rabbitmq
+      - mailhog
     env_file:
       - .env
+    networks:
+      - app-network
+
+  # ---------- Mailhog (Email Testing) ----------
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP port
+      - "8025:8025"   # Web UI port
     networks:
       - app-network
 
