@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	exporthttp "todoapp/services/task-service/internal/adapters/http/export"
 	middlewarehttp "todoapp/services/task-service/internal/adapters/http/middleware"
 	taskshttp "todoapp/services/task-service/internal/adapters/http/tasks"
 	"todoapp/services/task-service/internal/ports"
@@ -35,6 +36,9 @@ func NewRouter(deps HTTPDeps) (*gin.Engine, error) {
 
 	taskHandler := taskshttp.New(deps.TaskService)
 	taskHandler.RegisterRoutes(protected)
+
+	exportHandler := exporthttp.New(deps.TaskService)
+	exportHandler.RegisterRoutes(protected)
 
 	return router, nil
 }

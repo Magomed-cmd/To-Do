@@ -49,6 +49,10 @@ type TaskService interface {
 	GetTask(ctx context.Context, userID, taskID int64) (*entities.Task, error)
 	ListTasks(ctx context.Context, userID int64, filter TaskFilter) ([]entities.Task, error)
 
+	// ExportTasks exports all user tasks in the specified format.
+	// Returns the file content, filename, and any error.
+	ExportTasks(ctx context.Context, userID int64, format entities.ExportFormat) ([]byte, string, error)
+
 	CreateCategory(ctx context.Context, input CreateCategoryInput) (*entities.Category, error)
 	ListCategories(ctx context.Context, userID int64) ([]entities.Category, error)
 	DeleteCategory(ctx context.Context, userID, categoryID int64) error
