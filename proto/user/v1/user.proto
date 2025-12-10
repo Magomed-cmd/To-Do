@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "todoapp/pkg/proto/user/v1;userv1";
+
+message User {
+  int64 id = 1;
+  string email = 2;
+  string name = 3;
+  string role = 4;
+  bool is_active = 5;
+}
+
+message GetUserRequest {
+  int64 user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message ValidateTokenRequest {
+  string access_token = 1;
+}
+
+message ValidateTokenResponse {
+  int64 user_id = 1;
+  string email = 2;
+  string role = 3;
+  int64 expires_at = 4;
+}
+
+service UserService {
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+}

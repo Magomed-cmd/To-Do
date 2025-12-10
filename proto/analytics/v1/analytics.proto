@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package analytics.v1;
+
+option go_package = "todoapp/pkg/proto/analytics/v1;analyticsv1";
+
+enum TaskEventType {
+  TASK_EVENT_TYPE_UNSPECIFIED = 0;
+  TASK_EVENT_TYPE_CREATED = 1;
+  TASK_EVENT_TYPE_COMPLETED = 2;
+  TASK_EVENT_TYPE_DELETED = 3;
+}
+
+message TrackTaskEventRequest {
+  TaskEventType type = 1;
+  int64 user_id = 2;
+  int64 task_id = 3;
+  string status = 4;
+  string priority = 5;
+  int64 occurred_at = 6;
+}
+
+message TrackTaskEventResponse {}
+
+message DailyTaskMetrics {
+  int64 user_id = 1;
+  string date = 2;
+  int32 created_tasks = 3;
+  int32 completed_tasks = 4;
+  int32 total_tasks = 5;
+}
+
+message GetDailyMetricsRequest {
+  int64 user_id = 1;
+  string date = 2;
+}
+
+message GetDailyMetricsResponse {
+  DailyTaskMetrics metrics = 1;
+}
+
+service AnalyticsService {
+  rpc TrackTaskEvent(TrackTaskEventRequest) returns (TrackTaskEventResponse);
+  rpc GetDailyMetrics(GetDailyMetricsRequest) returns (GetDailyMetricsResponse);
+}
