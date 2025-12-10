@@ -34,31 +34,6 @@ services:
     networks:
       - app-network
 
-  # ---------- Traefik gateway ----------
-  traefik:
-    image: traefik:v3.0
-    container_name: traefik
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "8080:8080"
-    command:
-      - --api.dashboard=true
-      - --api.insecure=true
-      - --providers.docker=true
-      - --providers.docker.endpoint=unix:///var/run/docker.sock
-      - --providers.docker.network=to-do_app-network
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
-      - --log.level=DEBUG
-      - --accesslog=true
-      - --accesslog.filepath=/var/log/traefik/access.log
-    volumes:
-      - ${DOCKER_SOCK_PATH:-/var/run/docker.sock}:/var/run/docker.sock:ro
-      - ./logs/traefik:/var/log/traefik
-    networks:
-      - app-network
-
   # ---------- Redis ----------
   redis:
     image: redis:7-alpine
@@ -70,16 +45,34 @@ services:
     networks:
       - app-network
 
+  # ---------- RabbitMQ ----------
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - app-network
+
   # ---------- User Service ----------
   user-service:
     build:
       context: .
       dockerfile: ./services/user-service/Dockerfile
     restart: unless-stopped
+    ports:
+      - "${USER_SERVICE_PORT:-8081}:8081"
     environment:
       - HTTP_ADDR=:${USER_SERVICE_PORT:-8081}
       - POSTGRES_MASTER_HOST=postgres-master
-      - POSTGRES_MASTER_PORT=${POSTGRES_MASTER_PORT}
+      - POSTGRES_MASTER_PORT=5432
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
@@ -90,6 +83,7 @@ services:
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - GITHUB_REDIRECT_URL=${GITHUB_REDIRECT_URL}
+      - USER_SERVICE_GRPC_ADDR=:9091
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=to-do_app-network"
@@ -132,11 +126,13 @@ services:
       context: .
       dockerfile: ./services/task-service/Dockerfile
     restart: unless-stopped
+    ports:
+      - "${TASK_SERVICE_PORT:-8082}:8082"
     environment:
       - TASK_SERVICE_NAME=task-service
       - TASK_SERVICE_HTTP_ADDR=:${TASK_SERVICE_PORT:-8082}
       - TASK_SERVICE_DB_HOST=postgres-master
-      - TASK_SERVICE_DB_PORT=${POSTGRES_MASTER_PORT}
+      - TASK_SERVICE_DB_PORT=5432
       - TASK_SERVICE_DB_USER=${POSTGRES_USER}
       - TASK_SERVICE_DB_PASSWORD=${POSTGRES_PASSWORD}
       - TASK_SERVICE_DB_NAME=${POSTGRES_DB}
@@ -147,6 +143,11 @@ services:
       - TASK_SERVICE_JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
       - TASK_SERVICE_JWT_ACCESS_TTL=${JWT_ACCESS_TTL}
       - TASK_SERVICE_JWT_REFRESH_TTL=${JWT_REFRESH_TTL}
+      - TASK_SERVICE_USER_GRPC_ADDR=user-service:9091
+      - TASK_SERVICE_ANALYTICS_GRPC_ADDR=analytics-service:9092
+      - TASK_SERVICE_ANALYTICS_GRPC_TIMEOUT=2s
+      - TASK_SERVICE_RABBIT_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - TASK_SERVICE_RABBIT_QUEUE=${NOTIFICATION_TASK_QUEUE}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=to-do_app-network"
@@ -154,7 +155,7 @@ services:
       # --- API routes ---
       - "traefik.http.routers.task-api.rule=PathPrefix(`/api/tasks`)"
       - "traefik.http.routers.task-api.entrypoints=web"
-      - "traefik.http.middlewares.task-api-strip.stripprefix.prefixes=/api/tasks"
+      - "traefik.http.middlewares.task-api-strip.stripprefix.prefixes=/api"
       - "traefik.http.routers.task-api.middlewares=task-api-strip"
       - "traefik.http.routers.task-api.service=task-service"
 
@@ -169,6 +170,74 @@ services:
       - "traefik.http.services.task-service.loadbalancer.server.port=8082"
     depends_on:
       - postgres-master
+      - user-service
+      - analytics-service
+      - rabbitmq
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  # ---------- Analytics Service ----------
+  analytics-service:
+    build:
+      context: .
+      dockerfile: ./services/analytics-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${ANALYTICS_SERVICE_PORT:-8083}:8083"
+    environment:
+      - ANALYTICS_SERVICE_NAME=analytics-service
+      - ANALYTICS_SERVICE_HTTP_ADDR=:${ANALYTICS_SERVICE_PORT:-8083}
+      - ANALYTICS_SERVICE_GRPC_ADDR=:9092
+      - ANALYTICS_SERVICE_DB_HOST=postgres-master
+      - ANALYTICS_SERVICE_DB_PORT=5432
+      - ANALYTICS_SERVICE_DB_USER=${POSTGRES_USER}
+      - ANALYTICS_SERVICE_DB_PASSWORD=${POSTGRES_PASSWORD}
+      - ANALYTICS_SERVICE_DB_NAME=${POSTGRES_DB}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=to-do_app-network"
+
+      - "traefik.http.routers.analytics-api.rule=PathPrefix(`/api/analytics`)"
+      - "traefik.http.routers.analytics-api.entrypoints=web"
+      - "traefik.http.middlewares.analytics-strip.stripprefix.prefixes=/api/analytics"
+      - "traefik.http.routers.analytics-api.middlewares=analytics-strip"
+      - "traefik.http.routers.analytics-api.service=analytics-service"
+
+      - "traefik.http.routers.analytics-health.rule=PathPrefix(`/analytics/health`)"
+      - "traefik.http.routers.analytics-health.entrypoints=web"
+      - "traefik.http.middlewares.analytics-health-strip.stripprefix.prefixes=/analytics"
+      - "traefik.http.routers.analytics-health.middlewares=analytics-health-strip"
+      - "traefik.http.routers.analytics-health.service=analytics-service"
+
+      - "traefik.http.services.analytics-service.loadbalancer.server.port=8083"
+    depends_on:
+      - postgres-master
+    env_file:
+      - .env
+    networks:
+      - app-network
+
+  # ---------- Notification Service ----------
+  notification-service:
+    build:
+      context: .
+      dockerfile: ./services/notification-service/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      - NOTIFICATION_SERVICE_NAME=notification-service
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - NOTIFICATION_TASK_QUEUE=${NOTIFICATION_TASK_QUEUE}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_USER}
+    depends_on:
+      - rabbitmq
     env_file:
       - .env
     networks:
@@ -182,7 +251,7 @@ services:
       - ./migrations:/migrations
     command: >
       -path /migrations
-      -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-master:${POSTGRES_MASTER_PORT}/${POSTGRES_DB}?sslmode=disable
+      -database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-master:5432/${POSTGRES_DB}?sslmode=disable
       up
     depends_on:
       - postgres-master
@@ -196,6 +265,7 @@ volumes:
   postgres_master_data:
   postgres_slave_data:
   redis_data:
+  rabbitmq_data:
 
 networks:
   app-network:
