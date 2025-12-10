@@ -33,7 +33,7 @@ func TestUpdateTaskRequest_ToInput(t *testing.T) {
 	description := "  details "
 	status := "COMPLETED"
 	priority := "HIGH"
-	due := time.Now()
+	dueStr := "2024-12-15T10:00:00Z"
 	categoryID := int64(3)
 
 	req := UpdateTaskRequest{
@@ -41,7 +41,7 @@ func TestUpdateTaskRequest_ToInput(t *testing.T) {
 		Description:   &description,
 		Status:        &status,
 		Priority:      &priority,
-		DueDate:       &due,
+		DueDate:       &dueStr,
 		ClearDueDate:  true,
 		CategoryID:    &categoryID,
 		ClearCategory: true,
@@ -60,14 +60,14 @@ func TestUpdateTaskRequest_ToInput(t *testing.T) {
 	if input.Priority == nil || *input.Priority != entities.TaskPriorityHigh {
 		t.Fatalf("unexpected priority: %v", input.Priority)
 	}
-	if input.DueDate != &due || !input.ClearDueDate || input.CategoryID == nil || *input.CategoryID != categoryID || !input.ClearCategory {
+	if input.DueDate == nil || !input.ClearDueDate || input.CategoryID == nil || *input.CategoryID != categoryID || !input.ClearCategory {
 		t.Fatalf("unexpected struct: %+v", input)
 	}
 }
 
 func TestTaskFilterRequest_ToFilter(t *testing.T) {
-	from := time.Now()
-	to := from.Add(24 * time.Hour)
+	fromStr := "2024-12-10T10:00:00Z"
+	toStr := "2024-12-11T10:00:00Z"
 	categoryID := int64(2)
 
 	req := TaskFilterRequest{
@@ -75,8 +75,8 @@ func TestTaskFilterRequest_ToFilter(t *testing.T) {
 		Priority:   "medium",
 		CategoryID: &categoryID,
 		Search:     "  hello ",
-		DueFrom:    &from,
-		DueTo:      &to,
+		DueFrom:    &fromStr,
+		DueTo:      &toStr,
 		Limit:      -1,
 		Offset:     -2,
 	}
@@ -96,6 +96,9 @@ func TestTaskFilterRequest_ToFilter(t *testing.T) {
 	}
 	if filter.Limit != 20 || filter.Offset != 0 {
 		t.Fatalf("unexpected pagination: limit=%d offset=%d", filter.Limit, filter.Offset)
+	}
+	if filter.DueFrom == nil || filter.DueTo == nil {
+		t.Fatalf("expected DueFrom and DueTo to be parsed")
 	}
 }
 
