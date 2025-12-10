@@ -2,13 +2,19 @@ package auth
 
 import (
 	"context"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"golang.org/x/oauth2"
 )
+
+type roundTripper func(req *http.Request) (*http.Response, error)
+
+func (rt roundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return rt(req)
+}
 
 func TestGenerateState(t *testing.T) {
 	oauth := NewGitHubOAuth("id", "secret", "http://localhost/callback", []string{"user"})
@@ -30,31 +36,30 @@ func TestAuthCodeURLIncludesState(t *testing.T) {
 }
 
 func TestExchangeAndFetchUser(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
+	transport := roundTripper(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
 		case "/token":
-			_ = r.ParseForm()
-			if r.FormValue("code") != "code" {
-				t.Fatalf("unexpected code %s", r.FormValue("code"))
+			_ = req.ParseForm()
+			if req.FormValue("code") != "code" {
+				t.Fatalf("unexpected code %s", req.FormValue("code"))
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"access_token":"token","token_type":"bearer","expires_in":3600}`))
+			body := io.NopCloser(strings.NewReader(`{"access_token":"token","token_type":"bearer","expires_in":3600}`))
+			return &http.Response{StatusCode: http.StatusOK, Body: body, Header: http.Header{"Content-Type": []string{"application/json"}}}, nil
 		case "/user":
-			if r.Header.Get("Authorization") != "Bearer token" {
+			if req.Header.Get("Authorization") != "Bearer token" {
 				t.Fatalf("missing token header")
 			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":123,"email":"user@example.com","name":"User","avatar_url":"https://avatar"}`))
+			body := io.NopCloser(strings.NewReader(`{"id":123,"email":"user@example.com","name":"User","avatar_url":"https://avatar"}`))
+			return &http.Response{StatusCode: http.StatusOK, Body: body, Header: http.Header{"Content-Type": []string{"application/json"}}}, nil
 		default:
-			w.WriteHeader(http.StatusNotFound)
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(""))}, nil
 		}
-	}))
-	defer server.Close()
+	})
 
 	oauth := NewGitHubOAuth("id", "secret", "http://localhost/callback", []string{"user"})
-	oauth.config.Endpoint = oauth2.Endpoint{AuthURL: server.URL + "/authorize", TokenURL: server.URL + "/token"}
-	oauth.WithHTTPClient(server.Client())
-	oauth.WithAPIBase(server.URL)
+	oauth.config.Endpoint = oauth2.Endpoint{AuthURL: "https://example.com/authorize", TokenURL: "https://example.com/token"}
+	oauth.WithHTTPClient(&http.Client{Transport: transport})
+	oauth.WithAPIBase("https://example.com")
 	oauth.WithStateGenerator(func() (string, error) { return "state", nil })
 
 	token, err := oauth.Exchange(context.Background(), "code")

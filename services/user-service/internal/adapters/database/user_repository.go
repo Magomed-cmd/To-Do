@@ -230,6 +230,52 @@ func (r *PostgresUserRepository) querier(ctx context.Context) querier {
 	return r.pool
 }
 
+func (r *PostgresUserRepository) CreateSession(ctx context.Context, session entities.UserSession) error {
+	q := r.querier(ctx)
+	const query = `
+INSERT INTO user_service.user_sessions (user_id, refresh_token, expires_at)
+VALUES ($1,$2,$3)
+RETURNING id, created_at
+`
+	return q.QueryRow(ctx, query, session.UserID, session.RefreshToken, session.ExpiresAt).Scan(&session.ID, &session.CreatedAt)
+}
+
+func (r *PostgresUserRepository) GetSession(ctx context.Context, token string) (*entities.UserSession, error) {
+	q := r.querier(ctx)
+	const query = `
+SELECT id, user_id, refresh_token, expires_at, created_at
+FROM user_service.user_sessions
+WHERE refresh_token = $1
+`
+	var session entities.UserSession
+	if err := q.QueryRow(ctx, query, token).Scan(
+		&session.ID,
+		&session.UserID,
+		&session.RefreshToken,
+		&session.ExpiresAt,
+		&session.CreatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrRefreshTokenRevoked
+		}
+		return nil, err
+	}
+	return &session, nil
+}
+
+func (r *PostgresUserRepository) DeleteSession(ctx context.Context, token string) error {
+	q := r.querier(ctx)
+	const query = `DELETE FROM user_service.user_sessions WHERE refresh_token = $1`
+	tag, err := q.Exec(ctx, query, token)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrRefreshTokenRevoked
+	}
+	return nil
+}
+
 func scanUser(row rowScanner) (*entities.User, error) {
 	var (
 		user         entities.User

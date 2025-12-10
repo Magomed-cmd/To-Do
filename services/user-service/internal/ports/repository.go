@@ -15,5 +15,8 @@ type UserRepository interface {
 	UpsertPreferences(ctx context.Context, prefs entities.UserPreferences) error
 	GetPreferences(ctx context.Context, userID int64) (*entities.UserPreferences, error)
 	List(ctx context.Context, limit, offset int) ([]entities.User, error)
+	CreateSession(ctx context.Context, session entities.UserSession) error
+	GetSession(ctx context.Context, token string) (*entities.UserSession, error)
+	DeleteSession(ctx context.Context, token string) error
 	WithTransaction(ctx context.Context, fn func(context.Context) error) error
 }

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"todoapp/services/user-service/internal/domain/entities"
 	"golang.org/x/crypto/bcrypt"
+	"todoapp/services/user-service/internal/domain/entities"
 
 	"todoapp/services/user-service/internal/domain"
 	"todoapp/services/user-service/internal/ports"
@@ -28,6 +28,10 @@ type repoStub struct {
 	upserted     bool
 	listFunc     func(ctx context.Context, limit, offset int) ([]entities.User, error)
 	withTxCalled bool
+	session      *entities.UserSession
+	sessionErr   error
+	deleteSesErr error
+	sessionSaved bool
 }
 
 func (r *repoStub) Create(ctx context.Context, user *entities.User) error {
@@ -71,6 +75,39 @@ func (r *repoStub) Update(ctx context.Context, user *entities.User) error {
 
 func (r *repoStub) Delete(ctx context.Context, id int64) error {
 	return r.deleteErr
+}
+
+func (r *repoStub) CreateSession(ctx context.Context, session entities.UserSession) error {
+	if r.sessionErr != nil {
+		return r.sessionErr
+	}
+	r.sessionSaved = true
+	r.session = &session
+	if r.session.CreatedAt.IsZero() {
+		r.session.CreatedAt = time.Now()
+	}
+	return nil
+}
+
+func (r *repoStub) GetSession(ctx context.Context, token string) (*entities.UserSession, error) {
+	if r.sessionErr != nil {
+		return nil, r.sessionErr
+	}
+	if r.session == nil || r.session.RefreshToken != token {
+		return nil, domain.ErrRefreshTokenRevoked
+	}
+	return r.session, nil
+}
+
+func (r *repoStub) DeleteSession(ctx context.Context, token string) error {
+	if r.deleteSesErr != nil {
+		return r.deleteSesErr
+	}
+	if r.session != nil && r.session.RefreshToken == token {
+		r.session = nil
+		return nil
+	}
+	return domain.ErrRefreshTokenRevoked
 }
 
 func (r *repoStub) UpsertPreferences(ctx context.Context, prefs entities.UserPreferences) error {
@@ -153,6 +190,9 @@ func TestRegister(t *testing.T) {
 	if result.Tokens.AccessToken == "" || result.Tokens.RefreshToken == "" {
 		t.Fatalf("expected tokens")
 	}
+	if !repo.sessionSaved || repo.session == nil {
+		t.Fatalf("expected refresh session to be saved")
+	}
 }
 
 func TestRegisterDuplicate(t *testing.T) {
@@ -194,6 +234,9 @@ func TestLoginSuccess(t *testing.T) {
 	if tokens.expectPayload.UserID != 1 {
 		t.Fatalf("expected payload recorded")
 	}
+	if !repo.sessionSaved {
+		t.Fatalf("expected session to be stored")
+	}
 }
 
 func TestLoginInvalidPassword(t *testing.T) {
@@ -222,7 +265,14 @@ func TestRefreshToken(t *testing.T) {
 		Role:     "user",
 		IsActive: true,
 	}
-	repo := &repoStub{userByID: user}
+	repo := &repoStub{
+		userByID: user,
+		session: &entities.UserSession{
+			UserID:       1,
+			RefreshToken: "refresh",
+			ExpiresAt:    time.Now().Add(time.Hour),
+		},
+	}
 	tokens := &tokenManagerStub{
 		parseClaims: &ports.TokenClaims{
 			UserID:  1,

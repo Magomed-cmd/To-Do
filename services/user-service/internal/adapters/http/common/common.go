@@ -20,11 +20,15 @@ func WriteDomainError(ctx *gin.Context, err error) {
 	if domainErr, ok := err.(*domain.DomainError); ok {
 		switch domainErr {
 		case domain.ErrUserAlreadyExists:
-			ctx.JSON(http.StatusConflict, gin.H{"error": domainErr.Code, "message": domainErr.Message})
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": domainErr.Code, "message": domainErr.Message})
+		case domain.ErrUserNotFound:
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": domainErr.Code, "message": domainErr.Message})
 		case domain.ErrInvalidCredentials:
 			ctx.JSON(http.StatusUnauthorized, gin.H{"error": domainErr.Code, "message": domainErr.Message})
 		case domain.ErrUserInactive, domain.ErrUserLocked, domain.ErrUserSuspended:
 			ctx.JSON(http.StatusForbidden, gin.H{"error": domainErr.Code, "message": domainErr.Message})
+		case domain.ErrRefreshTokenRevoked, domain.ErrRefreshTokenMismatch:
+			ctx.JSON(http.StatusUnauthorized, gin.H{"error": domainErr.Code, "message": domainErr.Message})
 		default:
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": domainErr.Code, "message": domainErr.Message})
 		}

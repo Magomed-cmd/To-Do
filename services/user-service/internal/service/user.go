@@ -47,11 +47,24 @@ func (s *UserService) Register(ctx context.Context, input ports.RegisterInput) (
 		return nil, err
 	}
 
-	if err := s.repo.Create(ctx, user); err != nil {
+	var tokens *ports.AuthTokens
+
+	if err := s.repo.WithTransaction(ctx, func(txCtx context.Context) error {
+		if err := s.repo.Create(txCtx, user); err != nil {
+			return err
+		}
+
+		var err error
+		tokens, err = s.generateAndStoreSession(txCtx, user)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
-	return s.buildAuthResult(user)
+	return &ports.AuthResult{
+		User:   *user,
+		Tokens: *tokens,
+	}, nil
 }
 
 func (s *UserService) Login(ctx context.Context, input ports.LoginInput) (*ports.AuthResult, error) {
@@ -68,7 +81,7 @@ func (s *UserService) Login(ctx context.Context, input ports.LoginInput) (*ports
 		return nil, err
 	}
 
-	return s.buildAuthResult(user)
+	return s.issueAuthResult(ctx, user)
 }
 
 func (s *UserService) RefreshToken(ctx context.Context, refreshToken string) (*ports.AuthTokens, error) {
@@ -86,10 +99,40 @@ func (s *UserService) RefreshToken(ctx context.Context, refreshToken string) (*p
 		return nil, err
 	}
 
-	return s.generateTokens(user)
+	var tokens *ports.AuthTokens
+	if err := s.repo.WithTransaction(ctx, func(txCtx context.Context) error {
+		session, err := s.repo.GetSession(txCtx, refreshToken)
+		if err != nil {
+			return err
+		}
+		if session.UserID != claims.UserID {
+			return domain.ErrRefreshTokenMismatch
+		}
+		if time.Now().After(session.ExpiresAt) {
+			_ = s.repo.DeleteSession(txCtx, refreshToken)
+			return domain.ErrRefreshTokenRevoked
+		}
+
+		if err := s.repo.DeleteSession(txCtx, refreshToken); err != nil {
+			return err
+		}
+
+		tokens, err = s.generateAndStoreSession(txCtx, user)
+		return err
+	}); err != nil {
+		return nil, err
+	}
+
+	return tokens, nil
 }
 
 func (s *UserService) Logout(ctx context.Context, refreshToken string) error {
+	if refreshToken == "" {
+		return nil
+	}
+	if err := s.repo.DeleteSession(ctx, refreshToken); err != nil && err != domain.ErrRefreshTokenRevoked {
+		return err
+	}
 	return nil
 }
 
@@ -103,7 +146,7 @@ func (s *UserService) GitHubLogin(ctx context.Context, input ports.OAuthLoginInp
 		return nil, err
 	}
 
-	return s.buildAuthResult(user)
+	return s.issueAuthResult(ctx, user)
 }
 
 func (s *UserService) GetProfile(ctx context.Context, userID int64) (*entities.User, error) {
@@ -247,6 +290,36 @@ func (s *UserService) generateTokens(user *entities.User) (*ports.AuthTokens, er
 		AccessTokenExpiresAt:  accessExp,
 		RefreshToken:          refresh,
 		RefreshTokenExpiresAt: refreshExp,
+	}, nil
+}
+
+func (s *UserService) generateAndStoreSession(ctx context.Context, user *entities.User) (*ports.AuthTokens, error) {
+	tokens, err := s.generateTokens(user)
+	if err != nil {
+		return nil, err
+	}
+
+	session := entities.UserSession{
+		UserID:       user.ID,
+		RefreshToken: tokens.RefreshToken,
+		ExpiresAt:    tokens.RefreshTokenExpiresAt,
+	}
+
+	if err := s.repo.CreateSession(ctx, session); err != nil {
+		return nil, err
+	}
+
+	return tokens, nil
+}
+
+func (s *UserService) issueAuthResult(ctx context.Context, user *entities.User) (*ports.AuthResult, error) {
+	tokens, err := s.generateAndStoreSession(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	return &ports.AuthResult{
+		User:   *user,
+		Tokens: *tokens,
 	}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"todoapp/services/user-service/internal/ports"
 )
 
@@ -38,7 +39,8 @@ func NewJWTManager(accessSecret, refreshSecret string, accessTTL, refreshTTL tim
 }
 
 func (m *JWTManager) GenerateAccessToken(payload ports.TokenPayload) (string, time.Time, error) {
-	expiresAt := m.now().Add(m.accessTTL)
+	now := m.now()
+	expiresAt := now.Add(m.accessTTL)
 	claims := tokenClaims{
 		UserID: payload.UserID,
 		Email:  payload.Email,
@@ -46,7 +48,8 @@ func (m *JWTManager) GenerateAccessToken(payload ports.TokenPayload) (string, ti
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   strconv.FormatInt(payload.UserID, 10),
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
-			IssuedAt:  jwt.NewNumericDate(m.now()),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ID:        uuid.NewString(),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
