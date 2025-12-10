@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"todoapp/pkg/swagger"
 	authadapter "todoapp/services/user-service/internal/adapters/auth"
 	adminhttp "todoapp/services/user-service/internal/adapters/http/admin"
 	authhttp "todoapp/services/user-service/internal/adapters/http/auth"
@@ -20,6 +21,7 @@ type HTTPDeps struct {
 	UserService ports.UserService
 	TokenMgr    ports.TokenManager
 	GitHubOAuth *authadapter.GitHubOAuth
+	SwaggerSpec string
 }
 
 func NewRouter(deps HTTPDeps) (*gin.Engine, error) {
@@ -32,6 +34,10 @@ func NewRouter(deps HTTPDeps) (*gin.Engine, error) {
 
 	router.GET("/health", healthHandler)
 	router.HEAD("/health", healthHandler)
+
+	if deps.SwaggerSpec != "" {
+		swagger.RegisterRoutes(router, deps.SwaggerSpec)
+	}
 
 	security := middlewarehttp.New(deps.TokenMgr)
 
